@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Demo Consuming Application</title>
+  <meta name="robots" content="noindex" />
+  <link rel="stylesheet" href="assets/css/styles.css" />
+</head>
+<body>
+  <main class="page">
+    <div class="page-inner">
+      <section class="panel">
+        <span class="badge">Demo application</span>
+        <h1>Example: "ABCD App"</h1>
+        <p>
+          This page simulates an arbitrary third-party application that delegates Google sign-in to
+          this project's login page (<code>index.html</code>). It is a reference for how any
+          consuming application should integrate — it is not part of the login page itself.
+        </p>
+
+        <h2>1. Start sign-in</h2>
+        <p>
+          Clicking the button below generates this application's own <code>state</code> value,
+          stores it locally, and redirects to <code>index.html</code> with a <code>redirect_uri</code>
+          pointing back at this page.
+        </p>
+        <p><button id="start-signin" class="btn">Sign in with Google (via SSO page)</button></p>
+
+        <h2>2. Sign-in response</h2>
+        <div id="result-area"><p class="empty-state">No sign-in response yet on this page load.</p></div>
+      </section>
+
+      <section class="panel" id="decoded-panel" hidden>
+        <h2 style="margin-top:0">Signed in successfully</h2>
+        <pre id="jwt-payload" class="code-block"></pre>
+      </section>
+
+      <footer class="page-footer">Google SSO Login Page &middot; demo consuming application</footer>
+    </div>
+  </main>
+
+  <script src="config.js"></script>
+  <script src="assets/js/auth.js"></script>
+  <script>
+    (function () {
+      var DEMO_STATE_KEY = "demo_app_state";
+      var credentialParam = (window.SSO_CONFIG && window.SSO_CONFIG.CREDENTIAL_PARAM_NAME) || "id_token";
+
+      function selfUrl() {
+        return window.location.origin + window.location.pathname;
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      document.getElementById("start-signin").addEventListener("click", function () {
+        // The consuming application generates and owns ITS OWN state,
+        // independent of the SSO page's internal sso_state/nonce. This is
+        // the value the app must check on return to prevent CSRF.
+        var appState = SSOAuth.generateRandomToken(16);
+        window.sessionStorage.setItem(DEMO_STATE_KEY, appState);
+
+        var loginUrl = new URL("index.html", window.location.href);
+        loginUrl.searchParams.set("redirect_uri", selfUrl());
+        loginUrl.searchParams.set("state", appState);
+        loginUrl.searchParams.set("prompt", "select_account");
+        loginUrl.searchParams.set("context", "signin");
+
+        window.location.href = loginUrl.toString();
+      });
+
+      // Handle a returned response, if any, on page load.
+      var params = SSOAuth.parseReturnedParams();
+      if (Object.keys(params).length === 0) {
+        return;
+      }
+
+      var resultArea = document.getElementById("result-area");
+      var expectedState = window.sessionStorage.getItem(DEMO_STATE_KEY);
+      window.sessionStorage.removeItem(DEMO_STATE_KEY);
+
+      var stateOk = !!expectedState && params.state === expectedState;
+
+      var rows = Object.keys(params)
+        .map(function (key) {
+          return "<tr><th>" + escapeHtml(key) + "</th><td>" + escapeHtml(params[key]) + "</td></tr>";
+        })
+        .join("");
+
+      var stateNotice = stateOk
+        ? '<div class="notice success">Signed in successfully.</div>'
+        : '<div class="notice warn"><strong>state mismatch or missing.</strong> In a real application this response must be rejected outright.</div>';
+
+      resultArea.innerHTML =
+        stateNotice + '<table class="kv-table"><tbody>' + rows + "</tbody></table>";
+
+      var token = params[credentialParam];
+      if (token && stateOk) {
+        var payload = SSOAuth.decodeJwtPayload(token);
+        if (payload) {
+          document.getElementById("jwt-payload").textContent = JSON.stringify(payload, null, 2);
+          document.getElementById("decoded-panel").hidden = false;
+        }
+      }
+
+      // Clean the sensitive fragment/query out of the visible URL bar.
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState(null, "", selfUrl());
+      }
+    })();
+  </script>
+</body>
+</html>

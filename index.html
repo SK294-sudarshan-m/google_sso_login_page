@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign in with Google</title>
+  <meta name="robots" content="noindex" />
+  <link rel="stylesheet" href="assets/css/styles.css" />
+</head>
+<body>
+  <main class="login-page">
+    <div class="login-card">
+      <div class="login-mark" aria-hidden="true">G</div>
+
+      <h1>Continue with Google</h1>
+      <p class="login-subtext">
+        Choose your Google account to continue to the requesting application.
+      </p>
+
+      <div id="google-signin-button" class="login-button-slot"></div>
+
+      <p id="login-status" class="login-status" role="status" aria-live="polite"></p>
+      <p id="login-error" class="login-error" role="alert" hidden></p>
+    </div>
+  </main>
+
+  <!-- Plain-JS configuration (no client secret — see config.js) -->
+  <script src="config.js"></script>
+  <!-- Reusable auth module -->
+  <script src="assets/js/auth.js"></script>
+  <script>
+    SSOAuth.initLoginPage({
+      buttonEl: document.getElementById("google-signin-button"),
+      statusEl: document.getElementById("login-status"),
+      errorEl: document.getElementById("login-error"),
+    });
+  </script>
+</body>
+</html>

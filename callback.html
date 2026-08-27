@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SSO Callback Diagnostic</title>
+  <meta name="robots" content="noindex" />
+  <link rel="stylesheet" href="assets/css/styles.css" />
+</head>
+<body>
+  <main class="page">
+    <div class="page-inner">
+      <section class="panel">
+        <span class="badge">Diagnostic page</span>
+        <h1>Returned SSO parameters</h1>
+        <p>
+          This is a neutral, application-agnostic page for inspecting what the login page
+          (<code>index.html</code>) sent back after a sign-in attempt. Real consuming applications
+          should use their own <code>redirect_uri</code> instead of this page — see
+          <a href="README.md">README.md</a> for the integration contract.
+        </p>
+
+        <div id="notice-area"></div>
+
+        <h2>Returned fields</h2>
+        <div id="params-area"><p class="empty-state">No parameters were found in the URL.</p></div>
+
+        <h2>Signed in successfully</h2>
+        <div id="jwt-area"><p class="empty-state">No ID token present.</p></div>
+      </section>
+
+      <footer class="page-footer">Google SSO Login Page &middot; static diagnostic viewer</footer>
+    </div>
+  </main>
+
+  <script src="config.js"></script>
+  <script src="assets/js/auth.js"></script>
+  <script>
+    (function () {
+      var params = SSOAuth.parseReturnedParams();
+      var keys = Object.keys(params);
+      var noticeArea = document.getElementById("notice-area");
+      var paramsArea = document.getElementById("params-area");
+      var jwtArea = document.getElementById("jwt-area");
+      var credentialParam = (window.SSO_CONFIG && window.SSO_CONFIG.CREDENTIAL_PARAM_NAME) || "id_token";
+
+      if (keys.length === 0) {
+        return;
+      }
+
+      if (params.error) {
+        noticeArea.innerHTML =
+          '<div class="notice warn"><strong>Error returned:</strong> ' +
+          escapeHtml(params.error) +
+          "</div>";
+      } else {
+        noticeArea.innerHTML = '<div class="notice success">Signed in successfully.</div>';
+      }
+
+      var rows = keys
+        .map(function (key) {
+          return "<tr><th>" + escapeHtml(key) + "</th><td>" + escapeHtml(params[key]) + "</td></tr>";
+        })
+        .join("");
+      paramsArea.innerHTML = '<table class="kv-table"><tbody>' + rows + "</tbody></table>";
+
+      var token = params[credentialParam];
+      if (token) {
+        var payload = SSOAuth.decodeJwtPayload(token);
+        if (payload) {
+          jwtArea.innerHTML = '<pre class="code-block">' + escapeHtml(JSON.stringify(payload, null, 2)) + "</pre>";
+        } else {
+          jwtArea.innerHTML = '<p class="empty-state">The token could not be decoded as a JWT.</p>';
+        }
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+    })();
+  </script>
+</body>
+</html>
