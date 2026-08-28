@@ -320,6 +320,81 @@
   }
 
   // ---------------------------------------------------------------------
+  // Firebase-backed user allowlist (list data lives OUTSIDE this repo,
+  // and access to it is enforced by Firestore Security Rules, not by a
+  // publicly-readable URL — see README.md's Firebase setup section)
+  // ---------------------------------------------------------------------
+
+  var FIREBASE_SDK_VERSION = "10.13.2";
+  var firebaseSdkPromise = null;
+
+  /** Loads the Firebase App/Auth/Firestore SDKs from Google's CDN exactly once. */
+  function loadFirebaseSdk() {
+    if (firebaseSdkPromise) return firebaseSdkPromise;
+    var base = "https://www.gstatic.com/firebasejs/" + FIREBASE_SDK_VERSION + "/";
+    firebaseSdkPromise = Promise.all([
+      import(base + "firebase-app.js"),
+      import(base + "firebase-auth.js"),
+      import(base + "firebase-firestore.js"),
+    ]).then(function (mods) {
+      var appMod = mods[0];
+      var authMod = mods[1];
+      var fsMod = mods[2];
+      var app = appMod.initializeApp(CONFIG.FIREBASE_CONFIG);
+      return {
+        auth: authMod.getAuth(app),
+        db: fsMod.getFirestore(app),
+        GoogleAuthProvider: authMod.GoogleAuthProvider,
+        signInWithCredential: authMod.signInWithCredential,
+        doc: fsMod.doc,
+        getDoc: fsMod.getDoc,
+      };
+    });
+    return firebaseSdkPromise;
+  }
+
+  /**
+   * Checks whether a Google ID token belongs to an authorized user, by
+   * signing in to Firebase with that same token and then attempting to
+   * read a per-user document in Firestore (`authorizedUsers/{email}`).
+   * Whether that read is even allowed is decided by Firestore Security
+   * Rules running on Google's servers — not by anything in this repo —
+   * so unauthorized visitors can't read the allowlist at all, let alone
+   * bypass it locally the way a plain fetched list could be.
+   *
+   * Resolves to:
+   *   - true if CONFIG.FIREBASE_CONFIG is not set (no restriction configured)
+   *   - true if the matching document exists and the rules allow reading it
+   *   - false otherwise (wrong account, no document, rules denied it,
+   *     network/config error — all fail CLOSED)
+   *
+   * @param {string} idToken - the raw Google ID token (response.credential)
+   * @param {Object} payload - that same token, already decoded for its `email`/`email_verified` claims
+   */
+  function isAuthorizedUser(idToken, payload) {
+    if (!payload || typeof payload.email !== "string") return Promise.resolve(false);
+    if (payload.email_verified === false) return Promise.resolve(false);
+    if (!CONFIG.FIREBASE_CONFIG || !CONFIG.FIREBASE_CONFIG.apiKey) return Promise.resolve(true);
+
+    var email = payload.email.toLowerCase();
+
+    return loadFirebaseSdk()
+      .then(function (fb) {
+        var credential = fb.GoogleAuthProvider.credential(idToken);
+        return fb.signInWithCredential(fb.auth, credential).then(function () {
+          return fb.getDoc(fb.doc(fb.db, "authorizedUsers", email));
+        });
+      })
+      .then(function (snap) {
+        return snap.exists();
+      })
+      .catch(function (err) {
+        console.error("SSOAuth: Firebase authorization check failed.", err);
+        return false;
+      });
+  }
+
+  // ---------------------------------------------------------------------
   // Login page controller
   // ---------------------------------------------------------------------
 
@@ -375,6 +450,9 @@
 
     var ssoState = generateRandomToken(24);
     var nonce = generateRandomToken(24);
+    if (CONFIG.FIREBASE_CONFIG && CONFIG.FIREBASE_CONFIG.apiKey) {
+      loadFirebaseSdk(); // kick off in parallel with the GIS script below; ignore the promise here
+    }
 
     storePendingRequest(ssoState, {
       redirect_uri: req.redirect_uri,
@@ -391,21 +469,45 @@
         setError("This sign-in request has expired or was already used. Please return to the application and try again.");
         return;
       }
-      clearPendingRequest(ssoState);
 
-      var responseParams = {};
-      responseParams[CONFIG.CREDENTIAL_PARAM_NAME || "id_token"] = response.credential;
-      responseParams.state = pending.app_state || "";
-      responseParams.sso_state = ssoState;
-      responseParams.nonce = pending.nonce;
-      responseParams.provider = "google";
-      responseParams.issued_at = String(Date.now());
+      var payload = decodeJwtPayload(response.credential);
 
-      var useFragment = CONFIG.USE_FRAGMENT_RESPONSE !== false;
-      var url = buildResponseUrl(pending.redirect_uri, responseParams, useFragment);
+      setStatus("Checking authorization…");
 
-      setStatus("Signed in. Redirecting…");
-      window.location.replace(url);
+      isAuthorizedUser(response.credential, payload).then(function (authorized) {
+        if (!authorized) {
+          clearPendingRequest(ssoState);
+          if (window.google && window.google.accounts && window.google.accounts.id) {
+            window.google.accounts.id.disableAutoSelect();
+          }
+          setStatus("");
+          var message =
+            (payload && payload.email ? payload.email : "This account") +
+            " is not authorized to use this application. Sign in with an authorized Google account, or contact the admin if you believe this is a mistake.";
+          if (errorEl) {
+            errorEl.textContent = message;
+            errorEl.hidden = false;
+          }
+          // Unlike other errors, keep the button visible so the user can retry with a different account.
+          return;
+        }
+
+        clearPendingRequest(ssoState);
+
+        var responseParams = {};
+        responseParams[CONFIG.CREDENTIAL_PARAM_NAME || "id_token"] = response.credential;
+        responseParams.state = pending.app_state || "";
+        responseParams.sso_state = ssoState;
+        responseParams.nonce = pending.nonce;
+        responseParams.provider = "google";
+        responseParams.issued_at = String(Date.now());
+
+        var useFragment = CONFIG.USE_FRAGMENT_RESPONSE !== false;
+        var url = buildResponseUrl(pending.redirect_uri, responseParams, useFragment);
+
+        setStatus("Signed in. Redirecting…");
+        window.location.replace(url);
+      });
     }
 
     setStatus("Loading Google Sign-In…");
@@ -440,6 +542,8 @@
     generateRandomToken: generateRandomToken,
     getRequestParams: getRequestParams,
     validateRedirectUri: validateRedirectUri,
+    loadFirebaseSdk: loadFirebaseSdk,
+    isAuthorizedUser: isAuthorizedUser,
     storePendingRequest: storePendingRequest,
     getPendingRequest: getPendingRequest,
     clearPendingRequest: clearPendingRequest,

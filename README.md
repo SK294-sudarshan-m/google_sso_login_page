@@ -27,6 +27,7 @@ files on GitHub Pages.
   - [Returned fields](#returned-fields)
 - [How a consuming application should validate the result](#how-a-consuming-application-should-validate-the-result)
 - [Security model](#security-model)
+- [Managing the authorized user list without touching the codebase](#managing-the-authorized-user-list-without-touching-the-codebase)
 - [Local development / testing](#local-development--testing)
 - [FAQ](#faq)
 
@@ -108,6 +109,14 @@ window.SSO_CONFIG = {
   ALLOWED_REDIRECT_ORIGINS: [
     // "https://myapp.example.com",
   ],
+  FIREBASE_CONFIG: {
+    apiKey: "",
+    authDomain: "",
+    projectId: "",
+    storageBucket: "",
+    messagingSenderId: "",
+    appId: "",
+  },
   CREDENTIAL_PARAM_NAME: "id_token",
   USE_FRAGMENT_RESPONSE: true,
   STATE_TTL_MS: 5 * 60 * 1000,
@@ -122,6 +131,7 @@ window.SSO_CONFIG = {
 | `DEFAULT_REDIRECT_URI` | Used only if a request omits `redirect_uri`. Leave `""` to require every caller to pass one explicitly. |
 | `ALLOWED_REDIRECT_URIS` | **Exact** allowlist. Preferred. A request's `redirect_uri` must match one of these strings byte-for-byte. |
 | `ALLOWED_REDIRECT_ORIGINS` | Origin-only allowlist (any path allowed). Use sparingly, only for origins you fully trust/control. |
+| `FIREBASE_CONFIG` | Points at a Firebase project used to check each signer-in against a per-user Firestore document. The allowlist itself is **not** stored in this repo — see [Managing the authorized user list](#managing-the-authorized-user-list-without-touching-the-codebase). Leave `apiKey: ""` to allow any Google account. |
 | `CREDENTIAL_PARAM_NAME` | Name of the field carrying the raw Google ID token in the response. Defaults to `id_token`. |
 | `USE_FRAGMENT_RESPONSE` | `true` (default) returns results as a URL fragment (`#...`), which browsers never send to servers. Set `false` to use a query string (`?...`) instead — only if your callback needs server-side access on first load. |
 | `STATE_TTL_MS` | How long a generated `state`/`nonce` pair stays valid before being treated as expired. |
@@ -266,6 +276,82 @@ UI — they perform no verification and are clearly labeled as untrusted.
 - **No trust claimed by the frontend.** This page's job ends at "Google
   issued this token and here it is." Identity is only established once a
   backend verifies it, as detailed above.
+- **Client-side user allowlist, enforced by Firestore Security Rules.**
+  `SSOAuth.isAuthorizedUser()` signs the user's existing Google ID token
+  into Firebase Authentication, then tries to read a per-user Firestore
+  document (`authorizedUsers/{email}`). Whether that read is even
+  *allowed* is decided by Firestore Security Rules running on Google's
+  servers, not by anything in this repo — so an unauthorized visitor
+  can't read the allowlist at all (not even to see who else is on it),
+  unlike a plain fetched file. This is a real access-control boundary on
+  the *list*, not just a UX gate — but the follow-on decision to proceed
+  with the redirect is still made in this page's own JavaScript, so it
+  still complements, and does not replace, a backend verifying the ID
+  token if you add one later for whatever this login page feeds into.
+
+## Managing the authorized user list without touching the codebase
+
+The list of who's allowed to sign in is never stored in this repo — not
+in `config.js`, not anywhere else. It lives in a Firebase project's
+Firestore database, gated by Firestore Security Rules configured in the
+Firebase console, and `assets/js/auth.js` checks against it at sign-in
+time via the Firebase JS SDK (loaded from Google's CDN, no build step).
+
+**Setup:**
+
+1. Go to [console.firebase.google.com](https://console.firebase.google.com)
+   → **Add project**. You can attach it to the same Google Cloud project
+   your `GOOGLE_CLIENT_ID` already lives in, or make a new one.
+2. **Build → Authentication → Get started → Sign-in method → enable
+   Google.**
+3. **Build → Firestore Database → Create database** → production mode →
+   pick a region.
+4. In Firestore, create a collection named `authorizedUsers`. For each
+   person you want to allow, add one document whose **Document ID is
+   their lowercase Google account email** (e.g. `teammate@example.com`),
+   with any single field, e.g. `allowed: true`. This is the actual
+   allowlist — entered by hand in the console, never in code.
+5. **Firestore → Rules**, replace the contents with:
+   ```
+   rules_version = '2';
+   service cloud.firestore {
+     match /databases/{database}/documents {
+       match /authorizedUsers/{email} {
+         allow read: if request.auth != null
+                      && request.auth.token.email.lower() == email;
+       }
+     }
+   }
+   ```
+   This is what actually enforces the restriction: Firebase's own servers
+   refuse the read unless the signed-in account's email matches the
+   document being requested. Publish the rules.
+6. **Project settings → General → Your apps → Add app → Web**, then copy
+   the `firebaseConfig` object it gives you into `config.js`'s
+   `FIREBASE_CONFIG`. These values are meant to be public, the same
+   category as `GOOGLE_CLIENT_ID` — they identify which Firebase project
+   to talk to, they are not a credential.
+7. Deploy. From then on, adding or removing a teammate is just adding or
+   deleting a document in Firestore — no code change, no redeploy.
+
+Leave `FIREBASE_CONFIG.apiKey` as `""` to disable the check entirely and
+allow any Google account to sign in (useful for local testing before you
+set Firebase up).
+
+**Notes:**
+
+- Firebase's free "Spark" plan covers this comfortably at no cost: free
+  Google sign-ins, and Firestore's free tier (50,000 reads/day, 1 GiB
+  storage) is far more than a small team's login volume. No credit card
+  is required for Spark, and Google doesn't silently start billing you —
+  that only happens if you deliberately upgrade to the paid "Blaze" plan.
+- This **fails closed**: if Firestore is unreachable, misconfigured, or
+  the signed-in account has no matching document, the user is treated as
+  not authorized. Check the browser console for the specific error if
+  sign-in unexpectedly blocks everyone.
+- To allow a whole domain instead of listing every person individually,
+  extend the rule to also check
+  `request.auth.token.email.lower().matches('.*@yourdomain[.]com$')`.
 
 ## Local development / testing
 

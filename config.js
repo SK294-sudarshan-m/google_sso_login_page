@@ -14,6 +14,15 @@
  * credential in this file. Only the OAuth "Client ID" (which is public
  * by design for Google Identity Services / One Tap / Sign In With Google)
  * belongs here.
+ *
+ * FIREBASE_CONFIG below is also meant to be public — it identifies which
+ * Firebase project to talk to, the same way GOOGLE_CLIENT_ID identifies
+ * an OAuth client. It is NOT a credential. The actual list of who's
+ * authorized is never stored in this file or anywhere in this repo — it
+ * lives in that Firebase project's Firestore database, and Firestore
+ * Security Rules (configured in the Firebase console, not in this repo)
+ * are what actually decide who can read it. See "Managing the authorized
+ * user list" in README.md for the full setup.
  */
 
 window.SSO_CONFIG = {
@@ -72,6 +81,28 @@ window.SSO_CONFIG = {
   ALLOWED_REDIRECT_ORIGINS: [
     // "https://myapp.example.com",
   ],
+
+  /**
+   * Firebase project config, from Firebase console → Project settings →
+   * General → Your apps → Web app. Used to check each signed-in user
+   * against a per-user Firestore document (authorizedUsers/{email}) that
+   * Firestore Security Rules only let that same user read. Nobody else
+   * can even see whether a given email is on the list.
+   *
+   * Leave apiKey "" to disable this check entirely and allow any Google
+   * account to sign in (no restriction) — useful for local testing.
+   *
+   * See "Managing the authorized user list" in README.md for the
+   * step-by-step Firebase console setup.
+   */
+  FIREBASE_CONFIG: {
+    apiKey: "AIzaSyBElL1tK2e1_naOSWxhC2EeQOwiPhR6PJY",
+  authDomain: "gssologinpage.firebaseapp.com",
+  projectId: "gssologinpage",
+  storageBucket: "gssologinpage.firebasestorage.app",
+  messagingSenderId: "689467895728",
+  appId: "1:689467895728:web:7fc17d99a6a32fe9333075",
+  },
 
   /**
    * Name of the parameter used to carry the raw Google ID token back to
