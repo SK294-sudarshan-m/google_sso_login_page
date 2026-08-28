@@ -57,8 +57,9 @@ window.SSO_CONFIG = {
    */
   ALLOWED_REDIRECT_URIS: [
     "http://localhost:4173/demo.html",
-    "https://google-sso-login-page.YOUR-SUBDOMAIN.workers.dev/demo.html",
-    "https://google-sso-login-page.YOUR-SUBDOMAIN.workers.dev/callback.html",
+    "https://google-sso-login-page.sudarshan-m.workers.dev/",
+    "https://google-sso-login-page.sudarshan-m.workers.dev/demo.html",
+    "https://google-sso-login-page.sudarshan-m.workers.dev/callback.html",
     "http://localhost:4173/callback.html",
     // "https://myapp.example.com/auth/google/callback",
     // "http://localhost:3000/auth/google/callback",
