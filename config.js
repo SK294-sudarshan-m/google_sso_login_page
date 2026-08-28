@@ -34,7 +34,7 @@ window.SSO_CONFIG = {
    * Replace this placeholder before deploying. See README.md for the
    * full setup walkthrough (Authorized JavaScript origins, etc).
    */
-  GOOGLE_CLIENT_ID: "226159739492-ln5c0lduc42svca1jo7hiiisn6rdghp7.apps.googleusercontent.com",
+  GOOGLE_CLIENT_ID: "689467895728-rb5qt9prjkljbkso7ut4s50p29ln76r5.apps.googleusercontent.com",
 
   /**
    * Default redirect_uri used when a consuming application does not pass
